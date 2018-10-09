@@ -4,24 +4,52 @@ camera = null,
 root = null,
 robot_idle = null,
 robot_attack = null,
-flamingo = null,
-stork = null,
 group = null,
 orbitControls = null,
+clicked = null,
 targetList = [];
 var raycaster;
-var mouse = new THREE.Vector2(), intersected, clicked;
-var robot_mixer = {};
+var mouse = new THREE.Vector2();
+var robot_mixer = {}, animationsRobot={};
 var deadAnimator;
-var morphs = [];
 var maxRobots = 9;
 var duration = 20000; // ms
 var currentTime = Date.now();
-var positions = [];
+var positions = [], robotMixers = [], robotsA=[];
 var robots = 0;
 var animation = "idle";
 var game = true;
 var lastSpawn= -1, spawnRate = 2500, valueScore = 0;
+
+function Queue() {
+  this.data = [];
+}
+
+Queue.prototype.add = function(record) {
+  this.data.unshift(record);
+}
+
+Queue.prototype.remove = function() {
+  this.data.pop();
+}
+
+Queue.prototype.first = function() {
+  return this.data[0];
+}
+
+Queue.prototype.last = function() {
+  return this.data[this.data.length - 1];
+}
+
+Queue.prototype.size = function() {
+  return this.data.length;
+}
+
+const queue = new Queue();
+
+
+
+
 function changeAnimation(animation_text)
 {
     animation = animation_text;
@@ -61,7 +89,7 @@ function timer(){
       var minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
       var seconds = Math.floor((distance % (1000 * 60)) / 1000);
       // Output the result in an element with id="demo"
-      document.getElementById("time").innerHTML = "Time: "+ minutes + ":" + seconds;
+      document.getElementById("time").innerHTML = "Time: "+ minutes + "m " + seconds + "s";
 
       // If the count down is over, write some text
       if (distance < 0) {
@@ -71,12 +99,12 @@ function timer(){
       }
   }, 1000);
 }
-function onDocumentMouseDown( event )
+function onDocumentMouseDown(event)
 {
 	// the following line would stop any other event handler from firing
 	// (such as the mouse's TrackballControls)
 	//event.preventDefault();
-
+  //console.log(targetList.length);
 	console.log("Click");
 
 	// update the mouse variable
@@ -87,23 +115,17 @@ function onDocumentMouseDown( event )
 
 	// create a Ray with origin at the mouse position
 	//   and direction into the scene (camera direction)
-  raycaster.setFromCamera( mouse, camera );
-
+  raycaster.setFromCamera(mouse, camera);
 	// create an array containing all objects in the scene with which the ray intersects
-	var intersects = raycaster.intersectObjects(targetList);
-
+	var intersects = raycaster.intersectObjects(targetList,true);
 	// if there is one (or more) intersections
 	if (intersects.length > 0)
 	{
 		console.log("Hit @ " + toString(intersects[0].point));
+    clicked = intersects[0].object;
     updateScore();
-    changeAnimation("dead");
-		// change the color of the closest face.
-		//intersects[0].face.color.setRGB( 0.8 * Math.random() + 0.2, 0, 0 );
-		//intersects[0].object.geometry.colorsNeedUpdate = true;
 	}
   else {
-    changeAnimation("idle");
   }
 
 }
@@ -116,69 +138,49 @@ function updateScore(){
 }
 function spawnRobots() {
   var num = Math.floor(Math.random() * maxRobots);
-  var x =0;
-  console.log(positions[num].x,positions[num].y,positions[num].z);
   var newRobot = cloneFbx(robot_idle);
-      newRobot.mixer =  new THREE.AnimationMixer(scene);
+  var mixer = new THREE.AnimationMixer(newRobot);
+      robotMixers.push(mixer);
       newRobot.position.set(positions[num].x,positions[num].y,positions[num].z);
-      newRobot.traverse(function(child){
-        if (child.isMesh) {
-          x=x+1;
-            console.log(x);
-          child.castShadow = true;
-          child.receiveShadow = true;
-          targetList.push(child);
-        }
-      } );
-      var action = newRobot.mixer.clipAction(newRobot.animations[0], newRobot);
-      action.play();
+      mixer.clipAction(animationsRobot.attack).play();
+      targetList.push(newRobot);
       scene.add(newRobot);
+      queue.add(newRobot);
       robots = robots+1;
+}
+
+function quitRobots() {
+  robot = queue.last();
+  robot.position.set(robot.position.x,-10,robot.position.z)
+  scene.remove(robot);
+  queue.remove();
+  robots = robots - 1;
 }
 
 function loadFBX()
 {
     var loader = new THREE.FBXLoader();
-    var x =0;
     loader.load( 'models/Robot/robot_idle.fbx', function ( object )
     {
-        robot_mixer["idle"] = new THREE.AnimationMixer( scene );
+        robot_mixer["idle"] = new THREE.AnimationMixer(scene);
         object.scale.set(0.02, 0.02, 0.02);
-        object.position.y -= 4;
-        object.traverse(function(child){
-            if (child.isMesh) {
-              x=x+1;
-                console.log(x);
+        object.traverse( function ( child ) {
+            if ( child.isMesh ) {
                 child.castShadow = true;
                 child.receiveShadow = true;
-                targetList.push(child);
             }
         } );
         robot_idle = object;
-        //scene.add(robot_idle);
-
         //createDeadAnimation();
-
-        //robot_mixer["idle"].clipAction( object.animations[0], robot_idle ).play();
-
+        robot_mixer["idle"].clipAction(object.animations[0], robot_idle).play();
+        animationsRobot.idle = object.animations[0];
         loader.load( 'models/Robot/robot_atk.fbx', function ( object )
         {
-            robot_mixer["attack"] = new THREE.AnimationMixer( scene );
-            robot_mixer["attack"].clipAction( object.animations[0], robot_idle ).play();
-        } );
-
-        loader.load( 'models/Robot/robot_run.fbx', function ( object )
-        {
-            robot_mixer["run"] = new THREE.AnimationMixer( scene );
-            robot_mixer["run"].clipAction( object.animations[0], robot_idle ).play();
-        } );
-
-        loader.load( 'models/Robot/robot_walk.fbx', function ( object )
-        {
-            robot_mixer["walk"] = new THREE.AnimationMixer( scene );
-            robot_mixer["walk"].clipAction( object.animations[ 0 ], robot_idle ).play();
-        } );
-    } );
+            robot_mixer["attack"] = new THREE.AnimationMixer(scene);
+            robot_mixer["attack"].clipAction( object.animations[0], robot_idle).play();
+            animationsRobot.attack = object.animations[0];
+        });
+    });
 }
 
 function animate() {
@@ -187,12 +189,19 @@ function animate() {
     var deltat = now - currentTime;
     currentTime = now;
 
-    if(robot_idle && robot_mixer[animation])
+    if(robot_idle && robot_mixer["attack"])
     {
-        robot_mixer[animation].update(deltat * 0.001);
+      for (var robMix of robotMixers) {
+        robMix.update(deltat * 0.001);
+      }
+        //robot_mixer["attack"].update(deltat * 0.001);
         if (robots < maxRobots && now > (lastSpawn+spawnRate)) {
           lastSpawn = now;
           spawnRobots();
+        }
+        else if (robots < maxRobots && robots > 0 && now > (lastSpawn+spawnRate-500)) {
+          //lastSpawn = now;
+          quitRobots();
         }
     }
     if(animation =="dead")
@@ -203,17 +212,15 @@ function animate() {
 }
 
 function run() {
-  if(game){
     requestAnimationFrame(function() { run(); });
-
-    // Render the scene
-    renderer.render( scene, camera );
-
-    // Spin the cube for next frame
-    animate();
-    // Update the camera controller
-    orbitControls.update();
-  }
+    if(game){
+      // Render the scene
+      renderer.render( scene, camera );
+      // Spin the cube for next frame
+      animate();
+    }
+  // Update the camera controller
+  orbitControls.update();
 }
 
 var directionalLight = null;
@@ -240,21 +247,16 @@ function createScene(canvas) {
     camera.position.set(0, 150, 150);
     camera.rotation.set(-45,0,0);
     scene.add(camera);
-
     orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
-
     // Create a group to hold all the objects
     root = new THREE.Object3D;
     ambientLight = new THREE.AmbientLight ( 0xffffff );
     root.add(ambientLight);
-
     // Create the objects
     loadFBX();
-
     // Create a group to hold the objects
     group = new THREE.Object3D;
     root.add(group);
-
     // Create a texture map
     var map = new THREE.TextureLoader().load(mapUrl);
     var mapN = new THREE.TextureLoader().load(normalMapUrl);
@@ -262,9 +264,7 @@ function createScene(canvas) {
     map.repeat.set(10, 10);
     mapN.wrapS = mapN.wrapT = THREE.RepeatWrapping;
     mapN.repeat.set(10, 10);
-
     var color = 0xffffff;
-
     // Put in a ground plane to show off the lighting
     geometry = new THREE.PlaneGeometry(200, 200, 50, 50);
     var mesh = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({color:color, map:map,normalMap:mapN, side:THREE.DoubleSide}));
@@ -296,5 +296,6 @@ function createScene(canvas) {
     window.addEventListener( 'resize', onWindowResize);
     document.addEventListener('mousedown', onDocumentMouseDown);
     document.getElementById("score").innerHTML = "Score: "+valueScore;
+
     timer();
 }
