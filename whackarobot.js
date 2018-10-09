@@ -75,7 +75,7 @@ function onDocumentMouseDown( event )
 {
 	// the following line would stop any other event handler from firing
 	// (such as the mouse's TrackballControls)
-	event.preventDefault();
+	//event.preventDefault();
 
 	console.log("Click");
 
@@ -102,6 +102,9 @@ function onDocumentMouseDown( event )
 		//intersects[0].face.color.setRGB( 0.8 * Math.random() + 0.2, 0, 0 );
 		//intersects[0].object.geometry.colorsNeedUpdate = true;
 	}
+  else {
+    changeAnimation("idle");
+  }
 
 }
 function toString(v) {
@@ -113,12 +116,15 @@ function updateScore(){
 }
 function spawnRobots() {
   var num = Math.floor(Math.random() * maxRobots);
-  console.log(num);
+  var x =0;
+  console.log(positions[num].x,positions[num].y,positions[num].z);
   var newRobot = cloneFbx(robot_idle);
       newRobot.mixer =  new THREE.AnimationMixer(scene);
       newRobot.position.set(positions[num].x,positions[num].y,positions[num].z);
       newRobot.traverse(function(child){
         if (child.isMesh) {
+          x=x+1;
+            console.log(x);
           child.castShadow = true;
           child.receiveShadow = true;
           targetList.push(child);
@@ -133,6 +139,7 @@ function spawnRobots() {
 function loadFBX()
 {
     var loader = new THREE.FBXLoader();
+    var x =0;
     loader.load( 'models/Robot/robot_idle.fbx', function ( object )
     {
         robot_mixer["idle"] = new THREE.AnimationMixer( scene );
@@ -140,6 +147,8 @@ function loadFBX()
         object.position.y -= 4;
         object.traverse(function(child){
             if (child.isMesh) {
+              x=x+1;
+                console.log(x);
                 child.castShadow = true;
                 child.receiveShadow = true;
                 targetList.push(child);
