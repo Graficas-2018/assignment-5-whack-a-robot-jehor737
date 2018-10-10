@@ -5,69 +5,32 @@ root = null,
 robot_idle = null,
 robot_attack = null,
 group = null,
+groupRobots = null,
 orbitControls = null,
-clicked = null,
+CLICKED = null,
 targetList = [];
+var buttonClicked = false;
+var button = null;
+var duration = 120;
 var raycaster;
+var clock = new THREE.Clock();
 var mouse = new THREE.Vector2();
 var robot_mixer = {}, animationsRobot={};
 var deadAnimator;
 var maxRobots = 9;
-var duration = 20000; // ms
-var currentTime = Date.now();
-var positions = [], robotMixers = [], robotsA=[];
-var robots = 0;
-var animation = "idle";
-var game = true;
+var positions = [], robotMixers = [];
+var robots = 0,robotNumber=0;
+var animation = "attack";
+var game = false;
 var lastSpawn= -1, spawnRate = 2500, valueScore = 0;
-
-function Queue() {
-  this.data = [];
-}
-
-Queue.prototype.add = function(record) {
-  this.data.unshift(record);
-}
-
-Queue.prototype.remove = function() {
-  this.data.pop();
-}
-
-Queue.prototype.first = function() {
-  return this.data[0];
-}
-
-Queue.prototype.last = function() {
-  return this.data[this.data.length - 1];
-}
-
-Queue.prototype.size = function() {
-  return this.data.length;
-}
-
-const queue = new Queue();
-
-
-
-
-function changeAnimation(animation_text)
-{
-    animation = animation_text;
-
-    if(animation =="dead")
-    {
-        createDeadAnimation();
-    }
-    else
-    {
-        robot_idle.rotation.x = 0;
-        robot_idle.position.y = -4;
-    }
-}
+var clip = null;
 
 function createDeadAnimation()
 {
-
+  const keyFrame = new THREE.NumberKeyframeTrack( '.parent.quaternion', [ 0, 1 ], [ 0, 0, 0, 1, 0, 0, 0.7071068, 0.7071068] ); //Quaternion turns 90 degrees in z
+  var keyFrameArray = [];
+  keyFrameArray.push(keyFrame);
+  clip =  new THREE.AnimationClip("dead", 2, keyFrameArray);
 }
 
 function onWindowResize()
@@ -77,44 +40,17 @@ function onWindowResize()
     renderer.setSize( window.innerWidth, window.innerHeight );
 }
 function timer(){
-  // Set the date we're counting down to
-  var countDownDate = new Date().getTime()+121000;
-  // Update the count down every 1 second
-  var x = setInterval(function() {
-      // Get todays date and time
-      var now = new Date().getTime();
-      // Find the distance between now and the count down date
-      var distance = countDownDate - now;
-      // Time calculations for days, hours, minutes and seconds
-      var minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-      var seconds = Math.floor((distance % (1000 * 60)) / 1000);
-      // Output the result in an element with id="demo"
-      document.getElementById("time").innerHTML = "Time: "+ minutes + "m " + seconds + "s";
-
-      // If the count down is over, write some text
-      if (distance < 0) {
-          clearInterval(x);
-          document.getElementById("time").innerHTML = "Game Over";
-          game = false;
-      }
-  }, 1000);
+  document.getElementById("time").innerHTML = "Time: "+ Math.round(duration-clock.elapsedTime) + "s";
 }
 function onDocumentMouseDown(event)
 {
-	// the following line would stop any other event handler from firing
-	// (such as the mouse's TrackballControls)
-	//event.preventDefault();
-  //console.log(targetList.length);
-	console.log("Click");
-
 	// update the mouse variable
 	mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
 	mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
 
 	// find intersections
-
 	// create a Ray with origin at the mouse position
-	//   and direction into the scene (camera direction)
+	// and direction into the scene (camera direction)
   raycaster.setFromCamera(mouse, camera);
 	// create an array containing all objects in the scene with which the ray intersects
 	var intersects = raycaster.intersectObjects(targetList,true);
@@ -122,12 +58,29 @@ function onDocumentMouseDown(event)
 	if (intersects.length > 0)
 	{
 		console.log("Hit @ " + toString(intersects[0].point));
-    clicked = intersects[0].object;
-    updateScore();
-	}
-  else {
-  }
+    CLICKED = intersects[0].object;
+    if(CLICKED.parent.hit){//if object was hit then don't count for score
+      return;
+    }
+    CLICKED.parent.hit = true;
+    robotMixers[CLICKED.parent.idR].stopAllAction(); //Stop current animation
+    robotMixers[CLICKED.parent.idR].addEventListener("finished",function (e) { //When animation has finished
+      groupRobots.remove(e.target._root);//delete robot
+      positions[e.target._root.positionNumber].occupied = false;//update position occupation
+      if(targetList.indexOf(e.target._root) > -1){
+        targetList.splice(targetList.indexOf(e.target._root),1);//delete from targets
+      }
+      robots = robots - 1;//update number of robots
+      updateScore();
+      CLICKED = null;
+    });
 
+    robotMixers[CLICKED.parent.idR].clipAction(animationsRobot.idle).play();//Add animation
+    deadAnimator = robotMixers[CLICKED.parent.idR].clipAction(clip);//Add keyframes
+    deadAnimator.setLoop(THREE.LoopOnce);//Do keyframe animation
+    deadAnimator.clampWhenFinished = true;
+    deadAnimator.play();
+	}
 }
 function toString(v) {
   return "[ " + v.x + ", " + v.y + ", " + v.z + " ]";
@@ -136,25 +89,40 @@ function updateScore(){
   valueScore = valueScore + 100;
   document.getElementById("score").innerHTML = "Score: "+valueScore;
 }
+///Spawn Robots
 function spawnRobots() {
   var num = Math.floor(Math.random() * maxRobots);
-  var newRobot = cloneFbx(robot_idle);
-  var mixer = new THREE.AnimationMixer(newRobot);
-      robotMixers.push(mixer);
-      newRobot.position.set(positions[num].x,positions[num].y,positions[num].z);
-      mixer.clipAction(animationsRobot.attack).play();
-      targetList.push(newRobot);
-      scene.add(newRobot);
-      queue.add(newRobot);
-      robots = robots+1;
+  if(positions[num].occupied){
+    return; //If position is with a robot then get another number
+  }
+  var newRobot = cloneFbx(robot_idle); //Clone robot
+  newRobot.idR = robotNumber; //Add ID
+  newRobot.hit=false; //Add it hasn't been hit
+  newRobot.positionNumber = num; //Add position is occupied
+  robotNumber=robotNumber+1; //Add number of robots
+  targetList.push(newRobot); //Add as a target
+  var mixer = new THREE.AnimationMixer(newRobot);//Add Animation Mixer
+  robotMixers.push(mixer);
+  mixer.clipAction(animationsRobot.attack).play();
+  positions[num].occupied =  true;
+  newRobot.position.set(positions[num].x,positions[num].y,positions[num].z); //Set position
+  groupRobots.add(newRobot);//Add clone to scene
+  robots = robots+1;
 }
 
 function quitRobots() {
-  robot = queue.last();
-  robot.position.set(robot.position.x,-10,robot.position.z)
-  scene.remove(robot);
-  queue.remove();
-  robots = robots - 1;
+  if (CLICKED == null) {
+    var robot = groupRobots.children[0];//Get first robot
+    robot.position.set(robot.position.x,10,robot.position.z)
+    positions[robot.positionNumber].occupied = false;
+    if(targetList.indexOf(robot) > -1){
+      targetList.splice(targetList.indexOf(robot),1);
+    }
+    //Delete robot from scene
+    groupRobots.remove(robot);
+    robots = robots - 1;
+    console.log("Removed");
+  }
 }
 
 function loadFBX()
@@ -171,7 +139,6 @@ function loadFBX()
             }
         } );
         robot_idle = object;
-        //createDeadAnimation();
         robot_mixer["idle"].clipAction(object.animations[0], robot_idle).play();
         animationsRobot.idle = object.animations[0];
         loader.load( 'models/Robot/robot_atk.fbx', function ( object )
@@ -180,47 +147,67 @@ function loadFBX()
             robot_mixer["attack"].clipAction( object.animations[0], robot_idle).play();
             animationsRobot.attack = object.animations[0];
         });
+        createDeadAnimation();
     });
 }
 
 function animate() {
-    var a;
-    var now = Date.now();
-    var deltat = now - currentTime;
-    currentTime = now;
-
-    if(robot_idle && robot_mixer["attack"])
+  if(game){
+    var a = 500, i = 1;
+    if(clock.elapsedTime > duration){
+      document.getElementById("time").innerHTML = "Game finished";
+      button.innerHTML = "Restart";
+      button.style.display = "block";
+      return;
+    }
+    var deltat = clock.getDelta();
+    for (var robMix of robotMixers) {
+      robMix.update(deltat);
+    }
+    timer();
+    if(robot_idle && robot_mixer[animation])
     {
-      for (var robMix of robotMixers) {
-        robMix.update(deltat * 0.001);
+      if (robots < maxRobots && clock.oldTime > (lastSpawn+spawnRate)) {
+        lastSpawn = clock.oldTime;
+        spawnRobots();
       }
-        //robot_mixer["attack"].update(deltat * 0.001);
-        if (robots < maxRobots && now > (lastSpawn+spawnRate)) {
-          lastSpawn = now;
-          spawnRobots();
-        }
-        else if (robots < maxRobots && robots > 0 && now > (lastSpawn+spawnRate-500)) {
-          //lastSpawn = now;
-          quitRobots();
-        }
+      else if (robots < maxRobots && robots > 0 && clock.oldTime > (lastSpawn+spawnRate - 1000)){
+        quitRobots();
+      }
     }
-    if(animation =="dead")
-    {
-        KF.update();
-    }
-
+  }
+}
+function startGame(){
+  game = true;
+  button.style.display = "none";
 }
 
+function restartGame() {
+  scene.remove(groupRobots);
+  groupRobots = new THREE.Object3D;
+  scene.add(groupRobots);
+  for (var position in positions) {
+    position.occupied = false;
+  }
+  //Reset counters, clock, targets, score
+  targetList = [];
+  robots = 0;
+  robotNumber = 0;
+  lastSpawn = -1;
+  clock = new THREE.Clock();
+  robotMixers = [];
+  button.style.display = "none";
+  valueScore = 0;
+  document.getElementById("score").innerHTML = "Score: "+valueScore;
+}
+
+
 function run() {
-    requestAnimationFrame(function() { run(); });
-    if(game){
-      // Render the scene
-      renderer.render( scene, camera );
-      // Spin the cube for next frame
-      animate();
-    }
-  // Update the camera controller
-  orbitControls.update();
+  requestAnimationFrame(function() { run(); });
+  // Render the scene
+  renderer.render(scene, camera);
+  // Spin the cube for next frame
+  animate();
 }
 
 var directionalLight = null;
@@ -244,10 +231,10 @@ function createScene(canvas) {
     scene = new THREE.Scene();
     // Add  a camera so we can view the scene
     camera = new THREE.PerspectiveCamera( 45, canvas.width / canvas.height, 1, 5000 );
-    camera.position.set(0, 150, 150);
+    camera.position.set(0, 180, 120);
     camera.rotation.set(-45,0,0);
     scene.add(camera);
-    orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
+    //orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
     // Create a group to hold all the objects
     root = new THREE.Object3D;
     ambientLight = new THREE.AmbientLight ( 0xffffff );
@@ -261,12 +248,12 @@ function createScene(canvas) {
     var map = new THREE.TextureLoader().load(mapUrl);
     var mapN = new THREE.TextureLoader().load(normalMapUrl);
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    map.repeat.set(10, 10);
+    map.repeat.set(8, 8);
     mapN.wrapS = mapN.wrapT = THREE.RepeatWrapping;
-    mapN.repeat.set(10, 10);
+    mapN.repeat.set(8, 8);
     var color = 0xffffff;
     // Put in a ground plane to show off the lighting
-    geometry = new THREE.PlaneGeometry(200, 200, 50, 50);
+    geometry = new THREE.PlaneGeometry(200, 200, 100, 100);
     var mesh = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({color:color, map:map,normalMap:mapN, side:THREE.DoubleSide}));
 
     mesh.rotation.x = -Math.PI / 2;
@@ -286,16 +273,17 @@ function createScene(canvas) {
         circle = new THREE.Mesh(geometry,material);
         circle.position.set(i*60,-4,j*60);
         circle.rotation.x = -Math.PI / 2;
-        positions.push({x:i*60,y:-4,z:j*60});
+        positions.push({x:i*60,y:-4,z:j*60,occupied:false});
         groupCircle.add(circle);
       }
     }
+    groupRobots =  new THREE.Object3D;
     scene.add(groupCircle);
+    scene.add(groupRobots);
     // Now add the group to our scene
     scene.add(root);
     window.addEventListener( 'resize', onWindowResize);
     document.addEventListener('mousedown', onDocumentMouseDown);
     document.getElementById("score").innerHTML = "Score: "+valueScore;
-
-    timer();
+    button = document.getElementById("start");
 }
